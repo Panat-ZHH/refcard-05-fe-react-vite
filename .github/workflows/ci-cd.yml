@@ -1,5 +1,5 @@
 # Frontend CI/CD (RefCard05)
-#   lint & test & vite build  ->  nginx-Image nach Amazon ECR  ->  Rolling Deployment auf ECS (Fargate)  ->  Smoke-Test
+#   lint & test & vite build  ->  nginx-Image (Podman) nach Amazon ECR  ->  Rolling Deployment auf ECS (Fargate)  ->  Smoke-Test
 #
 # Trigger:
 #   - Pull Request auf main: nur lint/test/build
@@ -80,7 +80,7 @@ jobs:
           VITE_APP_VERSION: ${{ steps.version.outputs.version }}
 
   image:
-    name: nginx-Image -> Amazon ECR
+    name: nginx-Image (Podman) -> Amazon ECR
     needs: build-test
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -119,13 +119,17 @@ jobs:
             exit 1
           }
 
-      - name: Bei Amazon ECR anmelden
+      - name: Bei Amazon ECR anmelden (Podman)
         id: ecr
-        uses: aws-actions/amazon-ecr-login@v2
+        run: |
+          REGISTRY="$(aws sts get-caller-identity --query Account --output text).dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
+          aws ecr get-login-password | podman login --username AWS --password-stdin "$REGISTRY"
+          echo "registry=$REGISTRY" >> "$GITHUB_OUTPUT"
+          podman --version
 
       - name: Image-Tags bestimmen (SemVer aus Git-Tag)
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v5   # berechnet nur die Tag-Namen, baut nichts
         with:
           images: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}
           tags: |
@@ -134,26 +138,34 @@ jobs:
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
             type=ref,event=branch
             type=sha,prefix=sha-,format=short
-          labels: |
-            org.opencontainers.image.version=${{ needs.build-test.outputs.version }}
 
-      - uses: docker/setup-buildx-action@v3
+      - name: Image mit Podman bauen
+        env:
+          VERSION: ${{ needs.build-test.outputs.version }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          TAG_ARGS=()
+          for t in $TAGS; do TAG_ARGS+=(-t "$t"); done
+          # --format docker: behaelt HEALTHCHECK im Image (OCI-Format kennt keinen Healthcheck)
+          podman build --format docker --platform linux/amd64 --layers \
+            --build-arg VITE_API_BASE_URL="${{ vars.VITE_API_BASE_URL }}" \
+            --build-arg VITE_APP_VERSION="$VERSION" \
+            --build-arg GIT_SHA="$GITHUB_SHA" \
+            --label org.opencontainers.image.version="$VERSION" \
+            --label org.opencontainers.image.revision="$GITHUB_SHA" \
+            --label org.opencontainers.image.created="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            "${TAG_ARGS[@]}" .
 
-      - name: Build & Push
+      - name: Image nach Amazon ECR pushen
         id: build
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: linux/amd64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            VITE_API_BASE_URL=${{ vars.VITE_API_BASE_URL }}
-            VITE_APP_VERSION=${{ needs.build-test.outputs.version }}
-            GIT_SHA=${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          for t in $TAGS; do
+            podman push --digestfile digest.txt "$t"
+            echo "gepusht: $t"
+          done
+          echo "digest=$(cat digest.txt)" >> "$GITHUB_OUTPUT"
 
       - name: Unveraenderliche Image-Referenz fuer das Deployment
         id: image
