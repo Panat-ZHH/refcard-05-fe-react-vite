@@ -2,7 +2,7 @@
 
 > **RefCard05 (M324 DevOps)** – Fork von `bbwlc/refcard-03-fe-react-vite` (Stand `v1-start`).
 > Projektteam: Panat Ruangsri, Timo Eichenberger, Johan Stefanes  
-> Hauptdokumentation (PDF): [RefCard05_Dokumentation.pdf](https://github.com/Panat-ZHH/refcard-05-fullstack-aws/blob/main/docs/RefCard05_Dokumentation.pdf)  
+> Hauptdokumentation (PDF): [docs/RefCard05_Dokumentation.pdf](docs/RefCard05_Dokumentation.pdf) (Kopie, Original im Repo refcard-05-fullstack-aws)  
 > Backup-Dokumentation, AWS-Setup und lokales Compose: **[refcard-05-fullstack-aws](https://github.com/Panat-ZHH/refcard-05-fullstack-aws)**
 > Backend: **[refcard-05-be-springboot-businesstrips](https://github.com/Panat-ZHH/refcard-05-be-springboot-businesstrips)**
 
