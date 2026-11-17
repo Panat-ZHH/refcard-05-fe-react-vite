@@ -32,7 +32,7 @@ npm run dev        # http://localhost:5173, Backend unter VITE_API_BASE_URL aus 
 npm test           # Vitest
 ```
 
-Gesamtsystem lokal (Frontend + Backend + MariaDB + S3/MinIO): siehe [docker-compose-local](https://github.com/Panat-ZHH/refcard-05-fullstack-aws/tree/main/docker-compose-local).
+Gesamtsystem lokal (Frontend + Backend + MariaDB + S3Mock, mit Podman): siehe [docker-compose-local](https://github.com/Panat-ZHH/refcard-05-fullstack-aws/tree/main/docker-compose-local).
 
 ---
 
