@@ -1,7 +1,9 @@
 # RefCard 05 – Frontend: React + Vite als nginx-Container auf Amazon ECS
 
 > **RefCard05 (M324 DevOps)** – Fork von `bbwlc/refcard-03-fe-react-vite` (Stand `v1-start`).
-> Gesamtdokumentation, AWS-Setup und lokales Docker Compose: **[refcard-05-fullstack-aws](https://github.com/Panat-ZHH/refcard-05-fullstack-aws)**
+> Projektteam: Panat Ruangsri, Timo Eichenberger, Johan Stefanes  
+> Hauptdokumentation (PDF): [RefCard05_Dokumentation.pdf](https://github.com/Panat-ZHH/refcard-05-fullstack-aws/blob/main/docs/RefCard05_Dokumentation.pdf)  
+> Backup-Dokumentation, AWS-Setup und lokales Compose: **[refcard-05-fullstack-aws](https://github.com/Panat-ZHH/refcard-05-fullstack-aws)**
 > Backend: **[refcard-05-be-springboot-businesstrips](https://github.com/Panat-ZHH/refcard-05-be-springboot-businesstrips)**
 
 [![Frontend CI/CD](https://github.com/Panat-ZHH/refcard-05-fe-react-vite/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/Panat-ZHH/refcard-05-fe-react-vite/actions/workflows/ci-cd.yml)
