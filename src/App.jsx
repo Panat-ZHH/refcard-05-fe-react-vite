@@ -4,18 +4,19 @@ import "./App.css";
 import Wishlist from "./components/Wishlist";
 import TripList from "./components/TripList";
 import {useWishlist} from "./components/wishlistContext.jsx";
+import VersionFooter from "./components/VersionFooter.jsx";
 
 export default function App() {
     return (
         <div className="container">
             <header className="container h3">
-                RefCard 03 - Business Trips - Frontend Development with React and Java Spring
+                RefCard 05 - Business Trips - Frontend Development with React and Java Spring
 
             </header>
             <Wishlist/>
             <TripList/>
             <WishlistTest/>
-            <footer>only for educational purposes @BBW 2026</footer>
+            <VersionFooter/>
         </div>
 
 

@@ -3,8 +3,7 @@ import {FontAwesomeIcon} from "@fortawesome/react-fontawesome";
 import {faHeart, faTrashCan} from "@fortawesome/free-solid-svg-icons";
 import {useWishlist} from "./wishlistContext.jsx";
 import {formatTripDate} from "./dateUtils.js";
-
-const imgsFolder = import.meta.env.VITE_IMGS || "items";
+import TripImage from "./TripImage.jsx";
 
 export default function Wishlist() {
     const {wishlist, dispatch} = useWishlist();
@@ -59,11 +58,11 @@ function Wish({item}) {
         <tr>
             <td>
                 <div className="d-flex align-items-center gap-2">
-                    <img
-                        src={`images/${imgsFolder}/${id}.jpg`}
+                    <TripImage
+                        id={id}
+                        title={title}
                         className="img-thumbnail"
                         style={{width: "56px", height: "56px", objectFit: "cover"}}
-                        alt={title}
                     />
                     <span className="fw-semibold">{title}</span>
                 </div>
