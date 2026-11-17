@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.git/
+.github/
+.vscode/
+.idea/
+docs/
+*.md
+.env.local
+.env.*.local
+coverage/
