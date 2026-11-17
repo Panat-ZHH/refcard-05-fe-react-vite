@@ -1,0 +1,234 @@
+# Frontend CI/CD (RefCard05)
+#   lint & test & vite build  ->  nginx-Image nach Amazon ECR  ->  Rolling Deployment auf ECS (Fargate)  ->  Smoke-Test
+#
+# Trigger:
+#   - Pull Request auf main: nur lint/test/build
+#   - Push auf main:          + Image (sha-<commit>, main) + Deploy
+#   - Git-Tag vX.Y.Z:         + Image (X.Y.Z, X.Y, latest, sha-<commit>) + Deploy dieser Version
+#
+# AWS-Zugang (AWS Academy Learner Lab, kein OIDC moeglich):
+#   secrets.AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN  -> laufen mit der Lab-Session ab!
+# Repository-Variables: vars.VITE_API_BASE_URL (URL des Backend-Service), vars.APP_URL (URL des Frontends)
+name: Frontend CI/CD
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*.*.*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: biztrips-frontend
+  ECS_CLUSTER: biztrips-cluster
+  ECS_SERVICE: biztrips-frontend-service
+  CONTAINER_NAME: biztrips-frontend
+
+jobs:
+  build-test:
+    name: Lint, Test & Build (Vite)
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Version aus Git-Tag bestimmen
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="$(git describe --tags --match 'v[0-9]*' --always 2>/dev/null | sed 's/^v//')"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "### Frontend-Version: \`$VERSION\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+      - name: Lint
+        run: npm run lint
+      - name: Unit-Tests (Vitest)
+        run: npx vitest run --reporter=default --reporter=junit --outputFile.junit=test-results/junit.xml
+      - name: Testergebnisse in die Job-Summary schreiben
+        if: always()
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import xml.etree.ElementTree as ET
+          r = ET.parse('test-results/junit.xml').getroot()
+          print(f"| Tests | Fehlgeschlagen | Fehler |\n|---|---|---|\n| {r.get('tests')} | {r.get('failures')} | {r.get('errors')} |")
+          PY
+      - name: Vite-Build (Kontrolle, das Image baut nochmals mit der Backend-URL)
+        run: npm run build
+        env:
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+          VITE_APP_VERSION: ${{ steps.version.outputs.version }}
+
+  image:
+    name: nginx-Image -> Amazon ECR
+    needs: build-test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Konfiguration vorhanden?
+        env:
+          KEY: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+          API: ${{ vars.VITE_API_BASE_URL }}
+        run: |
+          if [ -z "$KEY" ] || [ -z "$TOKEN" ]; then
+            echo "::error title=AWS-Secrets fehlen::AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN aus dem Learner Lab (AWS Details -> AWS CLI) als Repository-Secrets hinterlegen."
+            exit 1
+          fi
+          if [ -z "$API" ]; then
+            echo "::error title=VITE_API_BASE_URL fehlt::Repository-Variable VITE_API_BASE_URL (URL des Backend-Service) setzen."
+            exit 1
+          fi
+
+      - name: AWS-Credentials aus Learner-Lab-Session
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Session noch gueltig?
+        run: |
+          aws sts get-caller-identity --query Arn --output text || {
+            echo "::error title=Learner-Lab-Session abgelaufen::Die temporaeren Zugangsdaten sind ungueltig. Lab neu starten und die 3 GitHub-Secrets aktualisieren (siehe Doku)."
+            exit 1
+          }
+
+      - name: Bei Amazon ECR anmelden
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Image-Tags bestimmen (SemVer aus Git-Tag)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=ref,event=branch
+            type=sha,prefix=sha-,format=short
+          labels: |
+            org.opencontainers.image.version=${{ needs.build-test.outputs.version }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build & Push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VITE_API_BASE_URL=${{ vars.VITE_API_BASE_URL }}
+            VITE_APP_VERSION=${{ needs.build-test.outputs.version }}
+            GIT_SHA=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Unveraenderliche Image-Referenz fuer das Deployment
+        id: image
+        run: |
+          IMAGE="${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:sha-${GITHUB_SHA::7}"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Image nach ECR gepusht"
+            echo '```'
+            echo "${{ steps.meta.outputs.tags }}"
+            echo '```'
+            echo "Digest: \`${{ steps.build.outputs.digest }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    name: Deploy -> ECS (Fargate)
+    needs: [build-test, image]
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ vars.APP_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: AWS-Credentials aus Learner-Lab-Session
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Task-Definition aus Vorlage rendern
+        env:
+          EXECUTION_ROLE_NAME: ${{ vars.EXECUTION_ROLE_NAME || 'LabRole' }}
+        run: |
+          export AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+          export AWS_REGION
+          envsubst < .aws/task-definition.json > task-definition.rendered.json
+          jq . task-definition.rendered.json > /dev/null
+
+      - name: Neues Image in Task-Definition eintragen
+        id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.rendered.json
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ needs.image.outputs.image }}
+
+      - name: Rolling Deployment (wartet auf stabilen Service)
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          service: ${{ env.ECS_SERVICE }}
+          wait-for-service-stability: true
+          wait-for-minutes: 10
+
+      - name: Smoke-Test - liefert nginx die neue Version aus?
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          EXPECTED: ${{ needs.build-test.outputs.version }}
+        run: |
+          for i in $(seq 1 20); do
+            VERSION="$(curl -fsS "$APP_URL/version.json" | jq -r .version || true)"
+            echo "Versuch $i: version=$VERSION"
+            if [ "$VERSION" = "$EXPECTED" ] && curl -fsS "$APP_URL/" | grep -q '<div id="root">'; then
+              {
+                echo "### Deployment verifiziert"
+                echo "- Frontend-Version auf ECS: \`$VERSION\`"
+                echo "- \`$APP_URL/version.json\`: \`$(curl -fsS "$APP_URL/version.json")\`"
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::error title=Smoke-Test fehlgeschlagen::Erwartete Version $EXPECTED wird nicht ausgeliefert"
+          exit 1
