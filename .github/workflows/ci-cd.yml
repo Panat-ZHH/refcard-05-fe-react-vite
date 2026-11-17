@@ -40,7 +40,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -50,12 +50,12 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             VERSION="${GITHUB_REF_NAME#v}"
           else
-            VERSION="$(git describe --tags --match 'v[0-9]*' --always 2>/dev/null | sed 's/^v//')"
+            VERSION="$(git describe --tags --match 'v[0-9]*.[0-9]*.[0-9]*' --always 2>/dev/null | sed 's/^v//')"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "### Frontend-Version: \`$VERSION\`" >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -87,7 +87,7 @@ jobs:
     outputs:
       image: ${{ steps.image.outputs.image }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Konfiguration vorhanden?
         env:
@@ -188,7 +188,7 @@ jobs:
       name: production
       url: ${{ vars.APP_URL }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: AWS-Credentials aus Learner-Lab-Session
         uses: aws-actions/configure-aws-credentials@v4
